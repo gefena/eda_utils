@@ -73,14 +73,29 @@ def eda_basic(df):
                 print("Too many (or just one) unique values for bar-plot")    
                 
                 
-def eda_correlation_all_to_column(df, compared_col_list):
+def eda_correlation_all_to_column(df, compared_col_list, min_max_corr_th = 0.3):
+    #
+    # Check if compared_col_list is numerical
+    #
+    
     col_numerical = list(df.select_dtypes([np.number]).columns)
     col_dates = list(df.select_dtypes(include=['datetime64']))
     col_objects = list(df.select_dtypes(include=['object']))
     
     if not isinstance(compared_col_list, list):
         compared_col_list = [compared_col_list]
+    
+    compared_col_list_copy = compared_col_list.copy()
+    compared_col_list = []
+    for compared_col in compared_col_list_copy:
+        if compared_col in col_numerical:
+            compared_col_list.append(compared_col)
+        else:
+            print("col: " + compared_col + " is not numerical")    
 
+    if len(compared_col_list) == 0:
+        return("No numerical columns were given")
+    
     for col in list(df.columns):
         print()
         print("column:", col, ", dtype:", df[col].dtype)
@@ -90,7 +105,7 @@ def eda_correlation_all_to_column(df, compared_col_list):
             if col in col_numerical and df[col].nunique() > 1 and col!=compared_col:
                 corr_pearson = df[compared_col].corr(df[col], method='pearson')
                 print("corr_pearson: ", corr_pearson)
-                if corr_pearson > 0.3 or corr_pearson < -0.3:
+                if corr_pearson > min_max_corr_th or corr_pearson < -1*min_max_corr_th:
                     df.plot.scatter(x=compared_col, y = col, figsize=(10,6))
                     plt.title(col + " .vs. " + compared_col)
                     plt.show()    
@@ -205,3 +220,31 @@ def simple_topic_modeling_for_col(df, col, num_topic, top_words_for_topic):
     #data.topic.value_counts(normalize=True).plot.bar()      
     series_tmp.plot(kind="bar", title= "Counts of " + topic_col, figsize=(20,6))
     plt.show()
+    
+    
+def get_outlier_limits_iqr(series):
+    series_quantile = series.quantile([0.25,0.75])
+    series_quantile_array = series_quantile.values
+    iqr = max(series_quantile_array) - min(series_quantile_array)
+    limits = series_quantile_array + (1.5*iqr) * np.array([-1,1])
+    return(limits)
+
+def get_outlier_limits_normal_dist(series):
+    std_relation = series.std()
+    mean_relation = series.mean()
+    limits = (mean_relation - 3*std_relation, mean_relation + 3*std_relation)
+    return(limits)    
+ 
+def get_hist_before_after_outlier_removal(df, col):
+    series = df[col]
+    limit_edges = get_outlier_limits_iqr(series)
+    print("Limit_edges: ", limit_edges)
+    series_no_outliers = series[(series >= limit_edges[0]) & (series <= limit_edges[1])]                
+    fig, ax = plt.subplots(figsize=(14,6))
+    series.hist(bins=50)
+    plt.title(col + " before outliers removal")
+    plt.show()                  
+    fig, ax = plt.subplots(figsize=(14,6))
+    series_no_outliers.hist(bins=50)
+    plt.title(col + " after outliers removal")
+    plt.show() 
