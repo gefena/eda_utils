@@ -1,5 +1,6 @@
 
 import numpy as np
+from numpy import median
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -27,11 +28,40 @@ def infer_date_col(df):
             except ValueError:
                 pass
     return(df)
+
+def get_percntage_missing_values(df):    
+    num_rows = df.shape[0]
+    for col in (df.columns):
+        sum_missing = df[col].isnull().sum()
+        print("col:" + col + ", missing values:", str(sum_missing/num_rows) + "%")
         
 def missing_data(df):
     display(df.info())
+    print()
+    print("Percentage of missing data:")
+    get_percntage_missing_values(df)
     msno.matrix(df)
     
+def col_against_missing_data(df, compared_col):
+    print("1 indicates missing values, 0 are non-missing")
+    num_rows = df.shape[0]
+    for col in (df.columns):
+        sum_missing = df[col].isnull().sum()
+        if sum_missing/num_rows > 0.1:
+            missing_values_series = np.where(df[col].isnull(), 1, 0) # let's make a variable that indicates 1 if the observation was missing or zero otherwise
+            df_tmp = pd.DataFrame()
+            df_tmp[compared_col] = df[compared_col]
+            new_col = col + "_missing_values"
+            df_tmp[new_col] = missing_values_series
+            print("medians: ",df_tmp.groupby(by=new_col)[compared_col].median())  
+            fig, ax = plt.subplots(figsize=(20,6))
+            ax = sns.violinplot(x=new_col, y=compared_col, data=df_tmp, scale='count', inner='box')
+            #ax = sns.boxplot(x=col, y=compared_col, data=df_tmp)
+            plt.title(compared_col + " grouped by " + new_col + ", median = " + str())
+            plt.xticks(rotation=90)
+            plt.show()
+
+
 def eda_basic(df):
     col_numerical = list(df.select_dtypes([np.number]).columns)
     col_dates = list(df.select_dtypes(include=['datetime64']))
@@ -67,17 +97,17 @@ def eda_basic(df):
             nunique = df[col].nunique()
             print("nunique:", nunique)
             if nunique > 1 and nunique < 50:
-                df[[col]].groupby(df[col]).count().plot(kind="bar", title= str(col), figsize=(20,6))
+                #df[[col]].groupby(by=col).count().plot(kind="bar", title= str(col), figsize=(20,6))              
+                df[col].value_counts().plot(kind="bar", title= str(col), figsize=(20,6))
                 plt.show()
+                df_tmp = df[col].value_counts() / df.shape[0]
+                print("*** Rare categories:")
+                display(df_tmp[df_tmp < 0.1])
             else:
                 print("Too many (or just one) unique values for bar-plot")    
                 
                 
 def eda_correlation_all_to_column(df, compared_col_list, min_max_corr_th = 0.3):
-    #
-    # Check if compared_col_list is numerical
-    #
-    
     col_numerical = list(df.select_dtypes([np.number]).columns)
     col_dates = list(df.select_dtypes(include=['datetime64']))
     col_objects = list(df.select_dtypes(include=['object']))
@@ -119,7 +149,11 @@ def eda_correlation_all_to_column(df, compared_col_list, min_max_corr_th = 0.3):
                 df_tmp[new_col_name] = series_tmp
                 df_tmp.boxplot(by=new_col_name, figsize=(20,6))
                 plt.xticks(rotation=90)
-                plt.show()      
+                plt.show()        
+                df_tmp[new_col_name] = df_tmp[new_col_name].astype('str')
+                df_tmp.groupby(by=new_col_name)[compared_col].median().plot(figsize=(20,2), title="Medians of " + compared_col + " over " + new_col_name)
+                plt.xticks(rotation=90)
+                plt.show()              
             if col in col_objects:
                 nunique = df[col].nunique()
                 print("nunique:", nunique)
@@ -132,13 +166,19 @@ def eda_correlation_all_to_column(df, compared_col_list, min_max_corr_th = 0.3):
                     plt.title(compared_col + " grouped by " + col)
                     plt.xticks(rotation=90)
                     plt.show()
+                    df_tmp.groupby(by=col)[compared_col].median().plot(kind='bar', figsize=(20,2), title="Medians of " + compared_col + " over " + col)
+                    plt.xticks(rotation=90)
+                    plt.show() 
                 if nunique >= 20 and nunique <= 30:
                     df_tmp = pd.DataFrame()
                     df_tmp[compared_col] = df[compared_col]
                     df_tmp[col] = df[col]
                     df_tmp.boxplot(by=col, figsize=(20,6))
                     plt.xticks(rotation=90)
-                    plt.show()     
+                    plt.show()    
+                    df_tmp.groupby(by=col)[compared_col].median().plot(kind='bar', figsize=(20,2), title="Medians of " + compared_col + " over " + col)
+                    plt.xticks(rotation=90)
+                    plt.show() 
             else:
                 print("Too many (or just one) unique values for box-plot")
                 
