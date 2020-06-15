@@ -26,6 +26,8 @@ import swifter
 import missingno as msno
 from IPython.display import display, Markdown
 
+import re
+
 
 def infer_date_col(df, timezone_conversion=False):
     for col in df.columns:
@@ -270,6 +272,7 @@ def generate_column_correlation_network(df, th=0.8, edge_labels_flag=True, layou
         col1 = rec[0]
         col2 = rec[1]
         corr = df[col1].corr(df[col2], method='pearson')
+        corr = round(corr,2)
         if abs(corr) >= th:   # if correlation is high enoigh add edge to graph
             G.add_edge(col1, col2, weight = corr)
 
@@ -316,12 +319,12 @@ def generate_column_correlation_network(df, th=0.8, edge_labels_flag=True, layou
         
     if num_edges > 1:
         com_values = [node_to_cc_dict[n] for n in G.nodes()]
-        nx.draw_networkx(G,pos, cmap = plt.get_cmap('jet'), node_color = com_values, with_labels=True,  alpha=0.6)
+        nx.draw_networkx(G,pos, cmap = plt.get_cmap('jet'), node_color = com_values, with_labels=True,  alpha=0.6, font_size=14)
     else:
-        nx.draw_networkx(G,pos, cmap = plt.get_cmap('jet'), with_labels=True,  alpha=0.6)
+        nx.draw_networkx(G,pos, cmap = plt.get_cmap('jet'), with_labels=True,  alpha=0.6, font_size=16)
     if edge_labels_flag:
         edge_labels = nx.get_edge_attributes(G,'weight')
-        nx.draw_networkx_edge_labels(G,pos,edge_labels=edge_labels,  alpha=0.6)
+        nx.draw_networkx_edge_labels(G,pos,edge_labels=edge_labels,  alpha=0.8)
     plt.show()   
         
 def explore_num_words_for_col(df, col):
@@ -528,3 +531,49 @@ def plot_time_series_with_outliers(date_series, series, series_name, one_step_ah
             df_with_limits_and_outliers.plot(x="date", y="upperLimit" , ax=ax, c='green', grid=True)
             df_with_limits_and_outliers.plot(x="date", y="lowerLimit" , ax=ax, c='green', grid=True)
         plt.show()  
+        
+def is_column_mixed_type(df, col):
+    num_float = df[df[col].apply(lambda x: isinstance(x, float))].shape[0]
+    num_str = df[df[col].apply(lambda x: isinstance(x, str))].shape[0]
+    num_int = df[df[col].apply(lambda x: isinstance(x, int))].shape[0]
+    if num_float*num_str > 0 or num_float*num_int > 0 or num_str*num_int > 0:
+        print("col:", col, "- has mixed types - ", "num_str:", num_str, ", num_float:", num_float, ", num_int:", num_int)
+        print("uniques:")
+        print(list(df[col].unique())[:10])
+        print("================================================")
+        return(True)
+    else:
+        return(False)        
+    
+    
+def fix_data_file(origfile, newfile):
+
+    with open(origfile) as f:
+        lines = f.readlines()
+        print("number of lines:", len(lines))
+
+        with open(newfile, "w") as w:
+
+            counter = 0
+            for line in lines:
+                counter+=1
+                new_line = re.sub(' +,', ',', line)
+                new_line = re.sub(', +', ',', new_line)
+                new_line = re.sub('NAN', '', new_line)
+                w.write(new_line)
+                
+    print("Finished writing newfile")           
+                
+                
+def is_column_mixed_type(df, col):
+    num_float = df[df[col].apply(lambda x: isinstance(x, float))].shape[0]
+    num_str = df[df[col].apply(lambda x: isinstance(x, str))].shape[0]
+    num_int = df[df[col].apply(lambda x: isinstance(x, int))].shape[0]
+    if num_float*num_str > 0 or num_float*num_int > 0 or num_str*num_int > 0:
+        print("col:", col, "- has mixed types - ", "num_str:", num_str, ", num_float:", num_float, ", num_int:", num_int)
+        print("uniques:")
+        print(list(df[col].unique())[:10])
+        print("================================================")
+        return(True)
+    else:
+        return(False)                
