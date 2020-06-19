@@ -20,13 +20,18 @@ from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import LatentDirichletAllocation, NMF
 from wordcloud import WordCloud
 
-#import time
-#import glob, os
+import time
+import glob, os
 import swifter
 import missingno as msno
 from IPython.display import display, Markdown
 
+from datasketch import MinHash, MinHashLSH
+from nltk import ngrams
+import editdistance
 import re
+
+import multiprocessing
 
 
 def infer_date_col(df, timezone_conversion=False):
@@ -433,28 +438,6 @@ def get_hist_before_after_outlier_removal(df, col):
     plt.title(col + " after outliers removal")
     plt.show() 
 
-#    def roc_auc_plot(df):
-#        #import numpy as np
-#        #from sklearn import metrics
-#        #import matplotlib.pyplot as plt
-#
-#        fpr, tpr, threshold = metrics.roc_curve(df["label"].astype(int).values, df["1"].values, pos_label=1, drop_intermediate=False)
-#        effective_threshold = threshold[fpr>0]
-#        print("effective_threshold max:", effective_threshold.max())
-#        print("effective_threshold min:",effective_threshold.min())
-#        roc_auc = metrics.auc(fpr, tpr)
-#        print("roc_auc:",roc_auc)
-#
-#        plt.title('Receiver Operating Characteristic')
-#        plt.plot(fpr, tpr, 'b', label = 'ROC curve (area = %0.2f)' % roc_auc)
-#        plt.legend(loc = 'lower right')
-#        plt.plot([0, 1], [0, 1],'r--')
-#        plt.xlim([-0.02, 1])
-#        plt.ylim([0, 1.03])
-#        plt.ylabel('True Positive Rate')
-#        plt.xlabel('False Positive Rate')
-#        plt.show()
-
 
 def fix_limits_for_time_series(series_quantile_array):
     # if fit is skewd so the entire boxplot is above/below zero we fix it to be symetric
@@ -531,21 +514,13 @@ def plot_time_series_with_outliers(date_series, series, series_name, one_step_ah
             df_with_limits_and_outliers.plot(x="date", y="upperLimit" , ax=ax, c='green', grid=True)
             df_with_limits_and_outliers.plot(x="date", y="lowerLimit" , ax=ax, c='green', grid=True)
         plt.show()  
+
         
-def is_column_mixed_type(df, col):
-    num_float = df[df[col].apply(lambda x: isinstance(x, float))].shape[0]
-    num_str = df[df[col].apply(lambda x: isinstance(x, str))].shape[0]
-    num_int = df[df[col].apply(lambda x: isinstance(x, int))].shape[0]
-    if num_float*num_str > 0 or num_float*num_int > 0 or num_str*num_int > 0:
-        print("col:", col, "- has mixed types - ", "num_str:", num_str, ", num_float:", num_float, ", num_int:", num_int)
-        print("uniques:")
-        print(list(df[col].unique())[:10])
-        print("================================================")
-        return(True)
-    else:
-        return(False)        
-    
-    
+##############################################################
+# Explore file/data problems
+##############################################################
+
+
 def fix_data_file(origfile, newfile):
 
     with open(origfile) as f:
@@ -566,6 +541,7 @@ def fix_data_file(origfile, newfile):
                 
                 
 def is_column_mixed_type(df, col):
+    ''' Find if a column has mixed data types: float / int / str '''
     num_float = df[df[col].apply(lambda x: isinstance(x, float))].shape[0]
     num_str = df[df[col].apply(lambda x: isinstance(x, str))].shape[0]
     num_int = df[df[col].apply(lambda x: isinstance(x, int))].shape[0]
@@ -576,4 +552,226 @@ def is_column_mixed_type(df, col):
         print("================================================")
         return(True)
     else:
-        return(False)                
+        return(False)  
+
+    
+##############################################################
+# Clean text
+##############################################################    
+        
+
+def clean_text(text, extra_stop_words=''):
+    
+    stopchar = "~!@#$%^&*(){}[]|,."
+
+    stopwords = extra_stop_words
+    stopwords = "," + stopwords + "," + ','.join(spacy_stop_words) + ","
+
+    text2 = text.strip().lower()
+    text3 = ''.join([s if not (s in stopchar) else " " for s in text2])
+    text4 = ''.join([i for i in text3 if not i.isdigit()])
+    text5 = ' '.join(text4.split())
+    text6 = ' '.join([w for w in text5.split() if len(w)>2])
+    text7 = ' '.join([w for w in text6.split() if ','+w+',' not in stopwords])
+    #if len(text6) > 2:
+    #    return(text6)
+    #else:
+    #    return(text4)    
+    return(text7)
+
+def clean_text_for_columns(df, col, extra_stop_words=''):
+    data = df[col].astype('str')
+    joined_text = '[,]'.join(data).lower()
+    cleaned_text = clean_text(text, extra_stop_words)
+    return(cleaned_text)
+
+##############################################################
+# unique text clusters
+##############################################################  
+
+def get_minhashes_of_unique_str_list(unique_str_list):
+
+    t0 = time.time()
+    # Create an MinHashLSH index optimized for Jaccard threshold 0.5,
+    # that accepts MinHash objects with 128 permutations functions
+    threshold=0.7
+    lsh = MinHashLSH(threshold=threshold, num_perm=128)
+
+    # Create MinHash objects
+    minhashes = {}
+    for i, s in enumerate(unique_str_list):
+        minhash = MinHash(num_perm=128)
+        for d in ngrams(s, 3):
+            minhash.update("".join(d).encode('utf-8'))
+        lsh.insert(i, minhash)
+        minhashes[i] = minhash
+
+        if i%5000==0:
+            print("counter:",i)
+            elapsed_time = time.time() - t0
+            print("[exp msg] elapsed time for subprocess: " + str(time.strftime("%H:%M:%S", time.gmtime(elapsed_time)))) 
+
+
+    elapsed_time = time.time() - t0
+    print("[exp msg] elapsed time for process: " + str(time.strftime("%H:%M:%S", time.gmtime(elapsed_time)))) 
+
+    #for i in range(len(minhashes.keys())):
+    #for i in range(10):    
+    #    result = lsh.query(minhashes[i])
+    #    print("Candidates with Jaccard similarity > " + str(threshold) + " for input", i, ":", result)
+    return(lsh, minhashes)
+
+def get_pair_comparisons_list(lsh, minhashes):
+    pair_comparisons_list = [] #set()
+    singelton_list = []
+    for i in range(len(minhashes.keys())):   
+        result = lsh.query(minhashes[i])
+        if len(result) == 1:
+            singelton_list.append(i)
+        for j in result:
+            if i < j:
+                pair_comparisons_list.append((i,j))
+
+        if i%100000==0:
+            print("counter:",i)        
+
+    print("len(singelton_list):",len(singelton_list))        
+    print("len(pair_comparisons_list):",len(pair_comparisons_list))
+    #print(singelton_list[0:5])
+    #print(pair_comparisons_list[0:5])
+    return(singelton_list, pair_comparisons_list)
+
+def get_text_cluster_network(singelton_list, pair_comparisons_list, unique_str_list):
+    set_connected_components = set()
+    G=nx.Graph()
+    #for first, second in itertools.combinations(descriptions_to_explore, 2):
+    for pair in pair_comparisons_list:
+        #print(pair)
+        first = unique_str_list[pair[0]]
+        second = unique_str_list[pair[1]]
+
+        ratio_len = len(first)/len(second)
+        max_len = max(len(first), len(second))
+        if ratio_len < 1.3 or ratio_len > 0.7:
+            if editdistance.eval(first, second) / max_len < 0.1:
+                G.add_edge(first, second)
+                set_connected_components.add(first)
+                set_connected_components.add(second)
+                #print("first:", first)
+                #print("second:", second)
+                ##merged.append(first)
+
+    print("set_connected_components:", len(set_connected_components))
+    #set_connected_components_diff = set(descriptions_to_explore).difference(set_connected_components)
+
+    #for n in set_connected_components_diff:
+    for i in singelton_list:
+        n = unique_str_list[i]   
+        G.add_node(n)
+    #print("set_connected_components_diff:", len(set_connected_components_diff))
+
+    n = G.number_of_nodes()
+    m = G.number_of_edges() 
+    ncc = nx.number_connected_components(G)
+    print("number of nodes in graph G: ",n)
+    print("number of edges in graph G: ",m)
+    print("number_connected_components in G: ",ncc)
+    return(G)
+
+def get_text_cluster_df_from_network(G):
+    counter = 0
+    cc_tuple = []
+    for cc in nx.connected_components(G):
+        counter+=1
+        cc_tuple.append( (cc, len(cc)) )
+        
+    text_clusters_df = pd.DataFrame.from_records(cc_tuple)
+    text_clusters_df.columns = ["unique_str_list", "num_unique_str"]
+    text_clusters_df = text_clusters_df.sort_values(by="num_unique_str", ascending=False)    
+    return(text_clusters_df)
+
+def get_text_cluster_df_from_unique_str_list(unique_str_list):
+    lsh, minhashes = get_minhashes_of_unique_str_list(unique_str_list)
+    singelton_list, pair_comparisons_list = get_pair_comparisons_list(lsh, minhashes)
+    G = get_text_cluster_network(singelton_list, pair_comparisons_list, unique_str_list)
+    text_clusters_df = get_text_cluster_df_from_network(G)
+    return(text_clusters_df)
+
+
+##############################################################
+# Given a dictionary of dataframes and action over dataframe retrun answer
+############################################################## 
+
+def get_dict_of_df_subgroups(df, subgroup_col):
+    dict_df = dict()
+    subgroup_list = df[subgroup_col].unique()
+    for subgroup in subgroup_list:
+        dict_df[subgroup] = df[df[subgroup_col]==subgroup].copy()
+    
+    return(dict_df)  
+
+def worker(subgroup, subgroup_df, return_dict, methodtorun):
+    '''worker function'''
+    return_dict[subgroup] = methodtorun(subgroup_df)
+
+def multiprocess_function_on_subgroup_df(subgroup_list, dict_df, methodtorun):
+    manager = multiprocessing.Manager()
+    return_dict = manager.dict()
+    jobs = []
+
+    for i in range(len(subgroup_list)):
+        subgroup = subgroup_list[i]
+        subgroup_df = dict_df[subgroup]
+        p = multiprocessing.Process(target=worker, args=(subgroup, subgroup_df, return_dict, methodtorun) )
+        jobs.append(p)
+        p.start()
+
+    for proc in jobs:
+        proc.join()
+    #print(return_dict.values())
+    
+    ans_df = pd.DataFrame.from_records(return_dict.items())
+    ans_df.columns = ["subgroup", "subgroup_ans"]
+    
+    return(ans_df)  
+
+
+##############################################################
+# Evaluation
+##############################################################    
+"""
+from sklearn import metrics
+from sklearn.metrics import classification_report 
+
+# Model Accuracy, how often is the classifier correct?
+print("Accuracy:",metrics.accuracy_score(y_test, y_pred))
+print("recall_score:",metrics.recall_score(y_test, y_pred))
+print("precision_score:",metrics.precision_score(y_test, y_pred))
+#print("roc_auc_score:",metrics.roc_auc_score(y_test, y_pred))
+print(classification_report(y_test, y_pred))    
+
+
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import plot_confusion_matrix
+
+#confusion_matrix(y_test, y_pred)
+
+class_names = ["0", "1"]
+
+np.set_printoptions(precision=2)
+
+# Plot non-normalized confusion matrix
+titles_options = [("Confusion matrix, without normalization", None),
+                  ("Normalized confusion matrix", 'true')]
+for title, normalize in titles_options:
+    disp = plot_confusion_matrix(clf, X_test, y_test,
+                                 display_labels=class_names,
+                                 cmap=plt.cm.Blues,
+                                 normalize=normalize)
+    disp.ax_.set_title(title)
+
+    print(title)
+    print(disp.confusion_matrix)
+
+plt.show()
+"""
