@@ -32,6 +32,7 @@ import editdistance
 import re
 
 import multiprocessing
+from multiprocessing import Pool
 
 
 def infer_date_col(df, timezone_conversion=False):
@@ -585,6 +586,10 @@ def clean_text_for_columns(df, col, extra_stop_words=''):
     cleaned_text = clean_text(text, extra_stop_words)
     return(cleaned_text)
 
+def clean_text_column_return_new_col(df, col, new_col):
+    df[new_col] = df[col].apply(lambda x: clean_text(str(x)))
+    return(df)
+
 ##############################################################
 # unique text clusters
 ##############################################################  
@@ -702,12 +707,15 @@ def get_text_cluster_df_from_unique_str_list(unique_str_list):
 # Given a dictionary of dataframes and action over dataframe retrun answer
 ############################################################## 
 
-def get_dict_of_df_subgroups(df, subgroup_col):
+def get_dict_of_df_subgroups(df, subgroup_col, copy_data=False):
     dict_df = dict()
     subgroup_list = df[subgroup_col].unique()
     for subgroup in subgroup_list:
-        dict_df[subgroup] = df[df[subgroup_col]==subgroup].copy()
-    
+        if copy_data:
+            dict_df[subgroup] = df[df[subgroup_col]==subgroup].copy()
+        else:
+            dict_df[subgroup] = df[df[subgroup_col]==subgroup]
+            
     return(dict_df)  
 
 def worker(subgroup, subgroup_df, return_dict, methodtorun):
@@ -733,45 +741,56 @@ def multiprocess_function_on_subgroup_df(subgroup_list, dict_df, methodtorun):
     ans_df = pd.DataFrame.from_records(return_dict.items())
     ans_df.columns = ["subgroup", "subgroup_ans"]
     
-    return(ans_df)  
+    return(ans_df)
+
+def multiprocess_pool_function_on_subgroup_df(subgroup_list, dict_df, methodtorun):
+    input_list_for_pool = []
+    for i in range(len(subgroup_list)):
+        subgroup = subgroup_list[i]
+        subgroup_df = dict_df[subgroup]
+        input_for_pool = (subgroup, subgroup_df)
+        input_list_for_pool.append(input_for_pool)
+
+    p = Pool(6)
+    return_list = p.map(methodtorun, input_list_for_pool)    
+    
+    ans_df = pd.DataFrame.from_records(return_list)
+    ans_df.columns = ["subgroup", "subgroup_ans"]
+   
+    return(ans_df) 
+
+def function_on_subgroup_df(subgroup_list, dict_df, methodtorun):
+    return_dict = dict()
+    for i in range(len(subgroup_list)):
+        subgroup = subgroup_list[i]
+        subgroup_df = dict_df[subgroup]
+        return_dict[subgroup] = methodtorun(subgroup_df)
+        
+    ans_df = pd.DataFrame.from_records(list(return_dict.items()))
+    ans_df.columns = ["subgroup", "subgroup_ans"]
+    return(ans_df) 
 
 
 ##############################################################
-# Evaluation
+# Correlations and predictive power scores
+# - https://8080labs.com/blog/posts/rip-correlation-introducing-the-predictive-power-score-pps/
+# - https://github.com/8080labs/ppscore
 ##############################################################    
-"""
-from sklearn import metrics
-from sklearn.metrics import classification_report 
 
-# Model Accuracy, how often is the classifier correct?
-print("Accuracy:",metrics.accuracy_score(y_test, y_pred))
-print("recall_score:",metrics.recall_score(y_test, y_pred))
-print("precision_score:",metrics.precision_score(y_test, y_pred))
-#print("roc_auc_score:",metrics.roc_auc_score(y_test, y_pred))
-print(classification_report(y_test, y_pred))    
+def plot_corrmatrix(corrMatrix, title):
+    fig = plt.figure(figsize=(12, 10))
 
+    hit = sns.heatmap(corrMatrix, annot=True, cmap= 'coolwarm') # cbar_kws= {'orientation': 'horizontal'}     
+    hit.set_xticklabels(corrMatrix.columns, fontsize=14, rotation=45)
+    hit.set_yticklabels(corrMatrix.columns, fontsize=14)
+    #plt.xticks(range(corrMatrix.shape[1]), corrMatrix.columns, fontsize=14, rotation=45)
+    #plt.yticks(range(corrMatrix.shape[1]), corrMatrix.columns, fontsize=14)
+    plt.title(title, fontsize=16);
+    plt.show()
 
-from sklearn.metrics import confusion_matrix
-from sklearn.metrics import plot_confusion_matrix
-
-#confusion_matrix(y_test, y_pred)
-
-class_names = ["0", "1"]
-
-np.set_printoptions(precision=2)
-
-# Plot non-normalized confusion matrix
-titles_options = [("Confusion matrix, without normalization", None),
-                  ("Normalized confusion matrix", 'true')]
-for title, normalize in titles_options:
-    disp = plot_confusion_matrix(clf, X_test, y_test,
-                                 display_labels=class_names,
-                                 cmap=plt.cm.Blues,
-                                 normalize=normalize)
-    disp.ax_.set_title(title)
-
-    print(title)
-    print(disp.confusion_matrix)
-
-plt.show()
-"""
+# For feature importance based on pps - go over all features compared to the target    
+# Predictive power score matrix
+#import ppscore as pps
+#fearue_col = "neighbourhood_group"
+#target_col = "price"
+#pps.score(data, fearue_col, target_col)    
