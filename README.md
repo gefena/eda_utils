@@ -1,5 +1,5 @@
-# eda_utils
-## EDA Utils for Data Science
+# EDA Utils for Data Science
+## EDA Utils for Generalized Data
 - Semi-Automated
 - Missing data visualization
 - Basic EDA
