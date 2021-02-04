@@ -410,7 +410,7 @@ def simple_topic_modeling_for_col(df, col, num_topic, top_words_for_topic):
     #data.topic.value_counts(normalize=True).plot.bar()      
     series_tmp.plot(kind="bar", title= "Counts of " + topic_col, figsize=(20,6))
     plt.show()
-    
+
     
 def get_outlier_limits_iqr(series):
     series_quantile = series.quantile([0.25,0.75])
@@ -423,7 +423,7 @@ def get_outlier_limits_normal_dist(series):
     std_relation = series.std()
     mean_relation = series.mean()
     limits = (mean_relation - 3*std_relation, mean_relation + 3*std_relation)
-    return(limits)    
+    return(limits)   
  
 def get_hist_before_after_outlier_removal(df, col):
     series = df[col]
@@ -451,7 +451,6 @@ def fix_limits_for_time_series(series_quantile_array):
     return(series_quantile_array)    
 
 def get_outlier_limits_iqr(series, chosen_quantiles=[0.25,0.75], flag_fix_limits_for_time_series=False):
-    #series_quantile = series.quantile([0.25,0.75])
     series_quantile = series.quantile(chosen_quantiles)
     series_quantile_array = series_quantile.values
     if flag_fix_limits_for_time_series:
@@ -460,8 +459,12 @@ def get_outlier_limits_iqr(series, chosen_quantiles=[0.25,0.75], flag_fix_limits
     limits = series_quantile_array + (1.5*iqr) * np.array([-1,1])
     return(limits)
 
+def remove_max_outliers(series, chosen_quantiles=[0.25,0.75]):
+    limits = get_outlier_limits_iqr(series, chosen_quantiles)
+    series[series > max(limits)] = np.nan
+    return(series)
+
 def get_outlier_limits_normal_dist(series):
-    #scaled_price_units_relation = ((df_oc.price - df_oc.price.min())/df_oc.price.max() * (df_oc.online_units - df_oc.online_units.min())/df_oc.online_units.max() )
     std_relation = series.std()
     mean_relation = series.mean()
     limits = (mean_relation - 3*std_relation, mean_relation + 3*std_relation)
