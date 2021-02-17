@@ -26,6 +26,9 @@ import swifter
 import missingno as msno
 from IPython.display import display, Markdown
 
+import ruptures as rpt
+import changefinder
+
 from datasketch import MinHash, MinHashLSH
 from nltk import ngrams
 import editdistance
@@ -518,6 +521,72 @@ def plot_time_series_with_outliers(date_series, series, series_name, one_step_ah
             df_with_limits_and_outliers.plot(x="date", y="upperLimit" , ax=ax, c='green', grid=True)
             df_with_limits_and_outliers.plot(x="date", y="lowerLimit" , ax=ax, c='green', grid=True)
         plt.show()  
+        
+##############################################################
+# changepoints / breakpoints in time series
+##############################################################
+
+def find_changepoints_for_time_series(series, modeltype="binary", number_breakpoints=10, plot_flag=True, plot_with_dates=False, show_time_flag=False):
+    
+    #RUPTURES PACKAGE
+    #points=np.array(series)
+    points=series.values
+    title=""
+    
+    t0 = time.time()
+    if modeltype=="binary":
+        title="Change Point Detection: Binary Segmentation Search Method"
+        model="l2"
+        changepoint_model = rpt.Binseg(model=model).fit(points)
+        result = changepoint_model.predict(n_bkps=number_breakpoints)
+    if modeltype=="pelt":
+        title="Change Point Detection: Pelt Search Method"
+        model="rbf"
+        changepoint_model = rpt.Pelt(model=model).fit(points)
+        result = changepoint_model.predict(pen=10)    
+    if modeltype=="window":
+        title="Change Point Detection: Window-Based Search Method"
+        model="l2"
+        changepoint_model = rpt.Window(width=40, model=model).fit(points)
+        result = changepoint_model.predict(n_bkps=number_breakpoints)  
+    if modeltype=="Dynamic":
+        title="Change Point Detection: Dynamic Programming Search Method"
+        model="l1"
+        changepoint_model = rpt.Dynp(model=model, min_size=3, jump=5).fit(points)
+        result = changepoint_model.predict(n_bkps=number_breakpoints)
+    if modeltype=="online":
+        # CHANGEFINDER PACKAGE
+        title="Simulates the working of finding changepoints in online fashion"
+        cf = changefinder.ChangeFinder()
+        scores = [cf.update(p) for p in points]
+        result = (-np.array(scores)).argsort()[:number_breakpoints]
+        result = sorted(list(result))
+        if series.shape[0] not in result:
+            result.append(series.shape[0])
+        
+
+    if show_time_flag:
+        elapsed_time = time.time() - t0
+        print("[exp msg] elapsed time for process: " + str(time.strftime("%H:%M:%S", time.gmtime(elapsed_time)))) 
+    
+    if plot_flag:
+        if not plot_with_dates:
+            rpt.display(points, result, figsize=(18, 6))
+            plt.title(title)
+            plt.show()
+        else:    
+            series.plot(figsize=(18, 6))
+            plt.title(title)
+            for i in range(len(result)-1):  
+                if i%2==0:
+                    current_color='xkcd:salmon'
+                else:
+                    current_color='xkcd:sky blue'        
+                #plt.fill_between(series.index[result[i]:result[i+1]], series.max(), color=current_color, alpha=0.3)
+                plt.fill_between(series.index[result[i]:result[i+1]], y1=series.max()*1.1, y2=series.min()*0.9, color=current_color, alpha=0.3)
+            plt.show()    
+                
+    return(result)  
 
         
 ##############################################################
