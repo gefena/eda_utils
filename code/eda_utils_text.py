@@ -16,7 +16,7 @@ sp = spacy.load('en_core_web_sm')
 #sp = spacy.load('en_core_web_lg')
 #spacy_stopwords = sp.Defaults.stop_words
 
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer, TfidfTransformer
 from sklearn.decomposition import LatentDirichletAllocation, NMF
 from wordcloud import WordCloud
 
@@ -309,6 +309,88 @@ def clean_and_compare_between_two_sentences(words1, words2):
     return(overlap_score)
 
 
+##############################################################
+# Utf-idf top keywords
+############################################################## 
+
+def get_filtered_pos_tokens(text):
+    legal_pos = ["VERB", "NOUN", 'ADJ', 'ADV']
+    custom_stop_list = ["go", "want"]
+    doc = nlp(text)
+
+    #collect_tokens = set()
+    collect_tokens = []
+    for token in doc:
+        if not token.is_stop and token.pos_ in legal_pos:
+            #print(token.text)
+            #print(token.text, token.pos_,
+                #token.lemma_, token.pos_, token.tag_, token.dep_,
+                #  token.shape_, token.is_alpha, token.is_stop
+            #     )
+            #if token.text != token.lemma_:
+            #  collect_tokens.add(token.text + " ("+ token.lemma_ + ")")
+            #else:
+            #collect_tokens.add(token.lemma_)
+            #if (len(token.lemma_)) > 1 and token.lemma_ not in custom_stop_list:
+            if (len(token.text)) > 2 and token.lemma_ not in custom_stop_list:
+                #collect_tokens.append(token.lemma_)
+                collect_tokens.append(token.text)
+
+    ans = ' '.join(collect_tokens)    
+    return(ans)
+
+def unify_doc_query_with_doc_list(doc_list_for_tfidf, doc_to_query):
+    doc_to_query = get_filtered_pos_tokens(doc_to_query)
+    temp_doc_list = [get_filtered_pos_tokens(doc_to_query)]
+    temp_doc_list.extend(doc_list_for_tfidf.copy())
+    doc_list_for_tfidf = temp_doc_list.copy()
+    return(doc_list_for_tfidf, doc_to_query)
+
+def get_top_keywrods_with_tfidf_on_doc_itself(doc_list, ngram=2,):
+    doc_list_for_tfidf = doc_list.copy()
+
+    keyword_list = []
+    for sentence in data:
+        doc_to_query = sentence
+        top_keywords = get_top_keywrods_with_tfidf(doc_list_for_tfidf, doc_to_query, ngram=2, num_return=10)
+        temp_keyword_list = top_keywords.values.tolist()
+        keyword_list.extend(temp_keyword_list)
+        #print(doc_to_query)
+        
+    keyword_list_df = pd.DataFrame.from_records(keyword_list)
+    #keyword_list_df
+    keyword_list_df_sum = keyword_list_df.groupby(by=0).sum().reset_index()
+    keyword_list_df_sum = keyword_list_df_sum.sort_values(by=1, ascending=False)
+    keyword_list_df_sum.columns = ["keywords", "sum rank"]   
+    
+    return(keyword_list_df_sum[keyword_list_df_sum["rank"]>0])
+
+def get_top_keywrods_with_tfidf(doc_list_for_tfidf, doc_to_query, ngram=2, num_return=10):
+    # Unify the doc to query with the doc list
+    doc_list_for_tfidf, doc_to_query = unify_doc_query_with_doc_list(doc_list_for_tfidf, doc_to_query)
+    #print("doc_to_query:", doc_to_query)
+
+    #tfidf = TfidfVectorizer(tokenizer=tokenize) # , stop_words='english'
+    tfidf = TfidfVectorizer(ngram_range = (ngram,ngram))
+    tfs = tfidf.fit_transform(doc_list_for_tfidf) # txt1
+
+    #str = 'all great and precious things are lonely.'
+    response = tfidf.transform([doc_to_query])  # txt1[0] # doc_list_for_tfidf[0]
+    #print(response)
+
+    feature_names = tfidf.get_feature_names()
+    #for col in response.nonzero()[1]:
+    #    print(feature_names[col], ' - ', response[0, col])
+
+    # Getting top ranking features
+    sums = response.sum(axis = 0)
+    data1 = []
+    for col, term in enumerate(feature_names):
+        data1.append( (term, sums[0,col] ))
+    ranking = pd.DataFrame(data1, columns = ['term','rank'])
+    words = (ranking.sort_values('rank', ascending = False))
+    #print ("\n\nWords head : \n", words.head(num_return)) 
+    return(words[words["rank"]>0])
 
 ##############################################################
 # Utils
